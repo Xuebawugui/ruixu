@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
 import ContactBanner from './components/ContactBanner.jsx';
+import { proxyYupooImage } from './utils/yupooImage.js';
 import './App.css';
 
 function useSiteData() {
@@ -131,7 +132,11 @@ function CategoryPage({ catalog }) {
         {albums.map((a) => (
           <Link key={a.id} to={`/album/${a.id}`} className="album-card">
             <div className="album-card__imgwrap">
-              <img src={a.cover} alt="" loading="lazy" />
+              <img
+                src={proxyYupooImage(a.cover)}
+                alt=""
+                loading="lazy"
+              />
               <span className="album-card__badge">{a.photoCount} 图</span>
             </div>
             <p className="album-card__title">{a.title || `Album ${a.id}`}</p>
@@ -190,7 +195,7 @@ function AlbumPage({ catalog }) {
             target="_blank"
             rel="noreferrer"
           >
-            <img src={src} alt="" loading="lazy" />
+            <img src={proxyYupooImage(src)} alt="" loading="lazy" />
           </a>
         ))}
       </div>
