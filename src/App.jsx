@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, Route, Routes, useParams, useSearchParams } from 'react-router-dom';
+import {
+  Link,
+  Route,
+  Routes,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
+import AlbumGrid from './components/AlbumGrid.jsx';
 import ContactBanner from './components/ContactBanner.jsx';
+import LanguageSelect from './components/LanguageSelect.jsx';
+import Pagination from './components/Pagination.jsx';
+import SiteNav, { PAGE_SIZE } from './components/SiteNav.jsx';
+import { useI18n } from './i18n/I18nProvider.jsx';
+import { filterCatalog } from './utils/catalogFilter.js';
+import { filterAlbumsByQuery, paginateAlbums } from './utils/filterAlbums.js';
 import { proxyYupooImage } from './utils/yupooImage.js';
 import './App.css';
 
@@ -13,7 +26,7 @@ function useSiteData() {
     Promise.all([
       fetch('/site-config.json').then((r) => r.json()),
       fetch('/data/catalog.json').then((r) => {
-        if (!r.ok) throw new Error('缺少 catalog.json，请先运行 npm run sync');
+        if (!r.ok) throw new Error('missing catalog');
         return r.json();
       }),
     ])
@@ -32,77 +45,172 @@ function useSiteData() {
   };
 }
 
-function Header({ config }) {
+function useCatalogStats(albums) {
+  return useMemo(() => {
+    const countByCategory = {};
+    for (const a of albums) {
+      countByCategory[a.categoryId] = (countByCategory[a.categoryId] || 0) + 1;
+    }
+    return { countByCategory };
+  }, [albums]);
+}
+
+function Header({ config, catalog, countByCategory }) {
+  const { t } = useI18n();
+
   return (
     <header className="site-header-wrap">
       <div className="site-header">
         <div className="site-header__inner">
-          <Link to="/" className="site-brand">
-            <span className="site-brand__name">{config.siteName}</span>
-            <span className="site-brand__tag">{config.tagline}</span>
-          </Link>
+          <span className="site-header__title">{config.siteName}</span>
+          <LanguageSelect />
         </div>
       </div>
       <ContactBanner
         contacts={config.contacts}
-        highlight={config.contactHighlight ?? '🔥'}
+        highlight={config.contactHighlight ?? ''}
       />
-      {config.notice ? (
-        <p className="site-notice">{config.notice}</p>
-      ) : null}
+      <p className="site-notice">{t('notice')}</p>
+      <SiteNav
+        config={config}
+        categories={catalog.categories || []}
+        countByCategory={countByCategory}
+      />
     </header>
   );
 }
 
-function Home({ catalog }) {
-  const categories = catalog.categories || [];
-  const countByCategory = useMemo(() => {
-    const m = {};
-    for (const a of catalog.albums) {
-      m[a.categoryId] = (m[a.categoryId] || 0) + 1;
-    }
-    return m;
-  }, [catalog.albums]);
+function AlbumListPage({ titleKey, albumsSource, basePath }) {
+  const { t } = useI18n();
+  const [searchParams] = useSearchParams();
+  const page = Number(searchParams.get('page') || '1') || 1;
+  const q = searchParams.get('q') || '';
+
+  const filtered = useMemo(
+    () => filterAlbumsByQuery(albumsSource, q),
+    [albumsSource, q]
+  );
+  const { items, totalPages, total, page: safePage } = paginateAlbums(
+    filtered,
+    page,
+    PAGE_SIZE
+  );
 
   return (
     <main className="page">
-      <h1 className="page-title">产品分类</h1>
-      <ul className="category-list">
-        {categories.map((c) => {
-          const count = countByCategory[c.id] || 0;
-          return (
-            <li key={c.id}>
-              <Link to={`/category/${c.id}`} className="category-card">
-                <span className="category-card__name">{c.name}</span>
-                <span className="category-card__count">{count} 款</span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="toolbar">
+        <h1 className="page-title">{t(titleKey)}</h1>
+        <span className="toolbar__meta">
+          {t('common.albumsTotal', { count: total })}
+        </span>
+      </div>
+      <AlbumGrid albums={items} />
+      <Pagination
+        page={safePage}
+        totalPages={totalPages}
+        basePath={basePath}
+        query={q}
+      />
+    </main>
+  );
+}
+
+function Home({ catalog }) {
+  return (
+    <AlbumListPage
+      titleKey="home.title"
+      albumsSource={catalog.albums}
+      basePath="/"
+    />
+  );
+}
+
+function AlbumsPage({ catalog }) {
+  return (
+    <AlbumListPage
+      titleKey="albums.title"
+      albumsSource={catalog.albums}
+      basePath="/albums"
+    />
+  );
+}
+
+function SearchPage({ catalog }) {
+  const { t } = useI18n();
+  const [searchParams] = useSearchParams();
+  const q = (searchParams.get('q') || '').trim();
+  const page = Number(searchParams.get('page') || '1') || 1;
+
+  const filtered = useMemo(
+    () => filterAlbumsByQuery(catalog.albums, q),
+    [catalog.albums, q]
+  );
+  const { items, totalPages, total, page: safePage } = paginateAlbums(
+    filtered,
+    page,
+    PAGE_SIZE
+  );
+
+  return (
+    <main className="page">
+      <nav className="breadcrumb">
+        <Link to="/">{t('common.breadcrumbHome')}</Link>
+        <span>/</span>
+        <span>{t('common.breadcrumbSearch')}</span>
+      </nav>
+      <div className="toolbar">
+        <h1 className="page-title">
+          {q ? t('search.titleQuery', { q }) : t('search.title')}
+        </h1>
+        <span className="toolbar__meta">
+          {t('search.results', { count: total })}
+        </span>
+      </div>
+      {!q ? (
+        <p className="muted">{t('search.hint')}</p>
+      ) : (
+        <>
+          <AlbumGrid albums={items} />
+          <Pagination
+            page={safePage}
+            totalPages={totalPages}
+            basePath="/search"
+            query={q}
+          />
+        </>
+      )}
     </main>
   );
 }
 
 function CategoryPage({ catalog }) {
+  const { t } = useI18n();
   const { categoryId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const q = (searchParams.get('q') || '').trim().toLowerCase();
+  const page = Number(searchParams.get('page') || '1') || 1;
+  const q = searchParams.get('q') || '';
 
   const category = catalog.categories.find((c) => c.id === categoryId);
-  const albums = useMemo(() => {
-    let list = catalog.albums.filter((a) => a.categoryId === categoryId);
-    if (q) {
-      list = list.filter((a) => (a.title || '').toLowerCase().includes(q));
-    }
-    return list;
-  }, [catalog.albums, categoryId, q]);
+  const inCategory = useMemo(
+    () => catalog.albums.filter((a) => a.categoryId === categoryId),
+    [catalog.albums, categoryId]
+  );
+
+  const filtered = useMemo(
+    () => filterAlbumsByQuery(inCategory, q),
+    [inCategory, q]
+  );
+  const { items, totalPages, total, page: safePage } = paginateAlbums(
+    filtered,
+    page,
+    PAGE_SIZE
+  );
 
   if (!category) {
     return (
       <main className="page">
-        <p>分类不存在</p>
-        <Link to="/">返回首页</Link>
+        <p>{t('category.notFound')}</p>
+        <Link to="/">{t('album.backHome')}</Link>
       </main>
     );
   }
@@ -110,53 +218,52 @@ function CategoryPage({ catalog }) {
   return (
     <main className="page">
       <nav className="breadcrumb">
-        <Link to="/">首页</Link>
+        <Link to="/">{t('common.breadcrumbHome')}</Link>
         <span>/</span>
         <span>{category.name}</span>
       </nav>
       <div className="toolbar">
         <h1 className="page-title">{category.name}</h1>
-        <input
-          className="search-input"
-          type="search"
-          placeholder="搜索款号 / 标题…"
-          value={searchParams.get('q') || ''}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v) setSearchParams({ q: v });
-            else setSearchParams({});
-          }}
-        />
+        <div className="toolbar__right">
+          <span className="toolbar__meta">
+            {t('category.count', { count: total })}
+          </span>
+          <input
+            className="search-input"
+            type="search"
+            placeholder={t('category.searchPlaceholder')}
+            value={q}
+            onChange={(e) => {
+              const v = e.target.value;
+              const next = new URLSearchParams();
+              if (v) next.set('q', v);
+              next.set('page', '1');
+              setSearchParams(next);
+            }}
+          />
+        </div>
       </div>
-      <div className="album-grid">
-        {albums.map((a) => (
-          <Link key={a.id} to={`/album/${a.id}`} className="album-card">
-            <div className="album-card__imgwrap">
-              <img
-                src={proxyYupooImage(a.cover)}
-                alt=""
-                loading="lazy"
-              />
-              <span className="album-card__badge">{a.photoCount} 图</span>
-            </div>
-            <p className="album-card__title">{a.title || `Album ${a.id}`}</p>
-          </Link>
-        ))}
-      </div>
-      {albums.length === 0 ? <p className="empty">没有匹配的相册</p> : null}
+      <AlbumGrid albums={items} />
+      <Pagination
+        page={safePage}
+        totalPages={totalPages}
+        basePath={`/category/${categoryId}`}
+        query={q}
+      />
     </main>
   );
 }
 
 function AlbumPage({ catalog }) {
+  const { t } = useI18n();
   const { albumId } = useParams();
   const album = catalog.albums.find((a) => a.id === albumId);
 
   if (!album) {
     return (
       <main className="page">
-        <p>相册不存在</p>
-        <Link to="/">返回首页</Link>
+        <p>{t('album.notFound')}</p>
+        <Link to="/">{t('album.backHome')}</Link>
       </main>
     );
   }
@@ -164,13 +271,12 @@ function AlbumPage({ catalog }) {
   const images = album.images && album.images.length > 0 ? album.images : [];
   const displayImages =
     images.length > 0 ? images : album.cover ? [album.cover] : [];
-  const needsFullSync =
-    images.length === 0 && album.photoCount > 1;
+  const needsFullSync = images.length === 0 && album.photoCount > 1;
 
   return (
     <main className="page">
       <nav className="breadcrumb">
-        <Link to="/">首页</Link>
+        <Link to="/">{t('common.breadcrumbHome')}</Link>
         <span>/</span>
         <Link to={`/category/${album.categoryId}`}>{album.categoryName}</Link>
         <span>/</span>
@@ -178,13 +284,10 @@ function AlbumPage({ catalog }) {
       </nav>
       <h1 className="page-title album-detail-title">{album.title}</h1>
       <p className="album-detail-hint">
-        喜欢这款？截图联系客服下单（Item / 标题：{album.title}）
+        {t('album.orderHint', { title: album.title })}
       </p>
       {needsFullSync ? (
-        <p className="muted">
-          本地仅缓存封面。发布前在项目里执行 <code>npm run sync:full</code>{' '}
-          可拉取该相册全部图片。
-        </p>
+        <p className="muted">{t('album.syncFullHint')}</p>
       ) : null}
       <div className="photo-grid">
         {displayImages.map((src) => (
@@ -204,17 +307,26 @@ function AlbumPage({ catalog }) {
 }
 
 export default function App() {
+  const { t } = useI18n();
   const { config, catalog, error, loading } = useSiteData();
+  const visibleCatalog = useMemo(
+    () =>
+      catalog && config
+        ? filterCatalog(catalog, config)
+        : { albums: [], categories: [] },
+    [catalog, config]
+  );
+  const { countByCategory } = useCatalogStats(visibleCatalog.albums);
 
   if (loading) {
-    return <div className="loading-screen">加载中…</div>;
+    return <div className="loading-screen">{t('common.loading')}</div>;
   }
 
   if (error || !config) {
     return (
       <div className="loading-screen error">
-        <p>{error || '加载失败'}</p>
-        <p className="muted">在项目目录执行：npm install && npm run sync</p>
+        <p>{error || t('common.loadFailed')}</p>
+        <p className="muted">{t('common.syncHint')}</p>
       </div>
     );
   }
@@ -222,7 +334,7 @@ export default function App() {
   if (!catalog) {
     return (
       <div className="loading-screen error">
-        <p>请先同步产品数据</p>
+        <p>{t('common.needSync')}</p>
         <code>npm run sync</code>
       </div>
     );
@@ -230,16 +342,22 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Header config={config} />
+      <Header
+        config={config}
+        catalog={visibleCatalog}
+        countByCategory={countByCategory}
+      />
       <Routes>
-        <Route path="/" element={<Home catalog={catalog} />} />
+        <Route path="/" element={<Home catalog={visibleCatalog} />} />
+        <Route path="/albums" element={<AlbumsPage catalog={visibleCatalog} />} />
+        <Route path="/search" element={<SearchPage catalog={visibleCatalog} />} />
         <Route
           path="/category/:categoryId"
-          element={<CategoryPage catalog={catalog} />}
+          element={<CategoryPage catalog={visibleCatalog} />}
         />
         <Route
           path="/album/:albumId"
-          element={<AlbumPage catalog={catalog} />}
+          element={<AlbumPage catalog={visibleCatalog} />}
         />
       </Routes>
     </div>

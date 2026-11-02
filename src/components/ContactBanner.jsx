@@ -1,11 +1,18 @@
+import { useI18n } from '../i18n/I18nProvider.jsx';
 import { contactEntries, contactHref } from './contactUtils.js';
 
-export default function ContactBanner({ contacts, highlight = '🔥' }) {
+export default function ContactBanner({ contacts, highlight = '' }) {
+  const { t } = useI18n();
   const items = contactEntries(contacts);
   if (items.length === 0) return null;
 
   return (
-    <div className="contact-banner" role="region" aria-label="联系方式">
+    <div
+      id="contact"
+      className="contact-banner"
+      role="region"
+      aria-label={t('contact.region')}
+    >
       <div className="contact-banner__inner">
         {highlight ? (
           <span className="contact-banner__highlight" aria-hidden="true">
@@ -32,7 +39,7 @@ export default function ContactBanner({ contacts, highlight = '🔥' }) {
                     className="contact-banner__link contact-banner__btn"
                     onClick={() => {
                       navigator.clipboard?.writeText(item.value.trim());
-                      alert(`已复制 ${item.label}：${item.value.trim()}`);
+                      alert(t('wechatCopied', { id: item.value.trim() }));
                     }}
                   >
                     {text}

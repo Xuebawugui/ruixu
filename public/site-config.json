@@ -1,9 +1,11 @@
 {
   "siteName": "Ruixu Trading Co., Ltd.",
+  "siteShortName": "Ruixu",
   "tagline": "Product Catalog",
   "contactHighlight": "",
-  "notice": "Screenshot the Item ID or album title, then contact us for pricing and orders.",
   "yupooSource": "https://leemade.x.yupoo.com",
+  "excludeCategoryIds": ["5090748", "5111311"],
+  "excludeCategoryNameIncludes": ["about us", "agent guide"],
   "contacts": {
     "whatsapp": ["+86 157 8724 5730", "+86 18977294622"],
     "wechat": "LC104812924"

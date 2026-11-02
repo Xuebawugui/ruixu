@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "sync": "node scripts/sync-yupoo.mjs",
-    "sync:full": "node scripts/sync-yupoo.mjs --with-images"
+    "sync:full": "node scripts/sync-yupoo.mjs --with-images --images-only"
   },
   "dependencies": {
     "react": "^18.3.1",

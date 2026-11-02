@@ -16,8 +16,10 @@ const UA =
 
 const args = process.argv.slice(2);
 const withImages = args.includes('--with-images');
+const imagesOnly = args.includes('--images-only');
 const maxAlbumsArg = args.find((a) => a.startsWith('--max-albums='));
 const maxAlbums = maxAlbumsArg ? Number(maxAlbumsArg.split('=')[1]) : Infinity;
+const SAVE_EVERY = 40;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -79,9 +81,82 @@ function parseAlbumImages(html) {
   return [...set];
 }
 
+function isExcludedCategory(cat, config) {
+  const ids = new Set(config.excludeCategoryIds || []);
+  if (ids.has(cat.id)) return true;
+  const patterns = (config.excludeCategoryNameIncludes || []).map((s) =>
+    s.toLowerCase()
+  );
+  if (!patterns.length) return false;
+  const name = (cat.name || '').toLowerCase();
+  return patterns.some((p) => name.includes(p));
+}
+
+function writeCatalog(out) {
+  fs.mkdirSync(path.dirname(OUT_PATH), { recursive: true });
+  fs.writeFileSync(OUT_PATH, JSON.stringify(out, null, 2), 'utf8');
+}
+
+async function fetchAlbumImages(base, album) {
+  const url = `${base}/albums/${album.id}?uid=1`;
+  const html = await fetchText(url);
+  album.images = parseAlbumImages(html);
+  if (!album.title) {
+    const t = html.match(/<title[^>]*>([^<|]+)/);
+    if (t) album.title = t[1].trim();
+  }
+}
+
 async function main() {
   const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   const base = config.yupooSource.replace(/\/$/, '');
+
+  if (imagesOnly && fs.existsSync(OUT_PATH)) {
+    const existing = JSON.parse(fs.readFileSync(OUT_PATH, 'utf8'));
+    const allowedCats = new Set(
+      (existing.categories || [])
+        .filter((c) => !isExcludedCategory(c, config))
+        .map((c) => c.id)
+    );
+    const albums = (existing.albums || []).filter((a) =>
+      allowedCats.has(a.categoryId)
+    );
+    existing.categories = (existing.categories || []).filter((c) =>
+      allowedCats.has(c.id)
+    );
+    existing.albums = albums;
+    const todo = albums.filter((a) => !a.images?.length);
+    console.log(
+      `Images-only: ${albums.length} albums, ${todo.length} need image URLs`
+    );
+    const out = {
+      ...existing,
+      syncedAt: new Date().toISOString(),
+      source: base,
+    };
+    for (let i = 0; i < todo.length; i++) {
+      const a = todo[i];
+      try {
+        await fetchAlbumImages(base, a);
+      } catch (e) {
+        console.warn('Album images failed', a.id, e.message);
+      }
+      if ((i + 1) % 20 === 0) {
+        console.log(`  ${i + 1}/${todo.length} (saved checkpoint pending)`);
+      }
+      if ((i + 1) % SAVE_EVERY === 0) {
+        out.syncedAt = new Date().toISOString();
+        writeCatalog(out);
+        console.log(`  checkpoint saved at ${i + 1}/${todo.length}`);
+      }
+      await sleep(320);
+    }
+    out.syncedAt = new Date().toISOString();
+    writeCatalog(out);
+    const withImg = albums.filter((a) => a.images?.length).length;
+    console.log(`Done. ${withImg}/${albums.length} albums have image lists.`);
+    return;
+  }
 
   console.log('Fetching categories from', base);
   const homeHtml = await fetchText(`${base}/albums/`);
@@ -91,7 +166,9 @@ async function main() {
   const albums = [];
   const seen = new Set();
 
-  for (const cat of categories) {
+  const visibleCategories = categories.filter((c) => !isExcludedCategory(c, config));
+
+  for (const cat of visibleCategories) {
     const catUrl = `${base}${cat.path}`;
     let catHtml;
     try {
@@ -123,35 +200,34 @@ async function main() {
     await sleep(400);
   }
 
+  const out = {
+    syncedAt: new Date().toISOString(),
+    source: base,
+    categories: visibleCategories,
+    albums,
+  };
+
   if (withImages) {
     console.log(`Fetching images for ${albums.length} albums...`);
     for (let i = 0; i < albums.length; i++) {
       const a = albums[i];
-      const url = `${base}/albums/${a.id}?uid=1`;
       try {
-        const html = await fetchText(url);
-        a.images = parseAlbumImages(html);
-        if (!a.title) {
-          const t = html.match(/<title[^>]*>([^<|]+)/);
-          if (t) a.title = t[1].trim();
-        }
+        await fetchAlbumImages(base, a);
       } catch (e) {
         console.warn('Album images failed', a.id, e.message);
       }
       if ((i + 1) % 20 === 0) console.log(`  ${i + 1}/${albums.length}`);
-      await sleep(350);
+      if ((i + 1) % SAVE_EVERY === 0) {
+        out.syncedAt = new Date().toISOString();
+        writeCatalog(out);
+        console.log(`  checkpoint saved at ${i + 1}/${albums.length}`);
+      }
+      await sleep(320);
     }
   }
 
-  const out = {
-    syncedAt: new Date().toISOString(),
-    source: base,
-    categories,
-    albums,
-  };
-
-  fs.mkdirSync(path.dirname(OUT_PATH), { recursive: true });
-  fs.writeFileSync(OUT_PATH, JSON.stringify(out, null, 2), 'utf8');
+  out.syncedAt = new Date().toISOString();
+  writeCatalog(out);
   console.log(`Wrote ${albums.length} albums -> ${OUT_PATH}`);
 }
 
