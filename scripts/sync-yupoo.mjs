@@ -21,6 +21,19 @@ const maxAlbumsArg = args.find((a) => a.startsWith('--max-albums='));
 const maxAlbums = maxAlbumsArg ? Number(maxAlbumsArg.split('=')[1]) : Infinity;
 const SAVE_EVERY = 40;
 
+function sanitizeCatalogText(text) {
+  if (!text || typeof text !== 'string') return text;
+  let s = text;
+  s = s.replace(/【\s*LeeMade\s*】/gi, '');
+  s = s.replace(/\[?\s*LeeMade\s*\]?/gi, '');
+  s = s.replace(
+    /【\s*\$\s*[\d.]+\s*(?:&x3D;|&#x3D;|＝|=)\s*[￥¥]\s*[\d.]+\s*】/gi,
+    ''
+  );
+  s = s.replace(/【\s*\$\s*[\d.]+\s*[￥¥]\s*[\d.]+\s*】/gi, '');
+  return s.replace(/\s{2,}/g, ' ').trim();
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -166,7 +179,9 @@ async function main() {
   const albums = [];
   const seen = new Set();
 
-  const visibleCategories = categories.filter((c) => !isExcludedCategory(c, config));
+  const visibleCategories = categories
+    .filter((c) => !isExcludedCategory(c, config))
+    .map((c) => ({ ...c, name: sanitizeCatalogText(c.name) }));
 
   for (const cat of visibleCategories) {
     const catUrl = `${base}${cat.path}`;
@@ -187,6 +202,7 @@ async function main() {
         seen.add(a.id);
         albums.push({
           ...a,
+          title: sanitizeCatalogText((a.title || '').trim()),
           categoryId: cat.id,
           categoryName: cat.name,
           images: [],
